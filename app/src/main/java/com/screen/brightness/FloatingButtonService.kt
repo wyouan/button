@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
 import android.graphics.drawable.GradientDrawable
 import android.os.IBinder
 import android.util.DisplayMetrics
@@ -17,7 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.widget.TextView
+import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 
 class FloatingButtonService : Service() {
@@ -65,9 +66,8 @@ class FloatingButtonService : Service() {
     }
 
     private fun updateScreenSize() {
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getMetrics(metrics)
         screenWidth = metrics.widthPixels
@@ -105,26 +105,24 @@ class FloatingButtonService : Service() {
     private fun createFloatingButton() {
         val sizeDp = AppPrefs.getSize(this)
         currentButtonSize = (sizeDp * resources.displayMetrics.density).toInt()
-
         val bgColor = AppPrefs.getBgColor(this)
-        val fgColor = AppPrefs.getFgColor(this)
         val alpha = AppPrefs.getAlpha(this)
-        val icon = AppPrefs.getIcon(this)
         val posY = AppPrefs.getPosY(this)
         val snapSide = AppPrefs.getSnapSide(this)
+        val iconPadding = (currentButtonSize * 0.22f).toInt()
 
-        floatingButton = TextView(this).apply {
-            text = icon
-            textSize = (sizeDp * 0.43f)
-            setTextColor(fgColor)
-            gravity = Gravity.CENTER
+        floatingButton = ImageView(this).apply {
+            setImageDrawable(IconHelper.loadIconDrawable(this@FloatingButtonService))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(bgColor)
-                setSize(currentButtonSize, currentButtonSize)
             }
             this.alpha = alpha
         }
+
+        applyIconTint()
 
         val startX = if (snapSide == 1) screenWidth - currentButtonSize else 0
 
@@ -150,35 +148,41 @@ class FloatingButtonService : Service() {
         val sizeDp = AppPrefs.getSize(this)
         val newButtonSize = (sizeDp * resources.displayMetrics.density).toInt()
         val bgColor = AppPrefs.getBgColor(this)
-        val fgColor = AppPrefs.getFgColor(this)
         val alpha = AppPrefs.getAlpha(this)
-        val icon = AppPrefs.getIcon(this)
 
-        val button = floatingButton as TextView
-        button.text = icon
-        button.textSize = (sizeDp * 0.43f)
+        val button = floatingButton as ImageView
+        button.setImageDrawable(IconHelper.loadIconDrawable(this))
         button.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(bgColor)
-            setSize(newButtonSize, newButtonSize)
         }
-
-        if (BrightnessHelper.isMaxBrightness) {
-            button.alpha = 1.0f
-            button.setTextColor(Color.YELLOW)
-        } else {
-            button.alpha = alpha
-            button.setTextColor(fgColor)
-        }
+        button.alpha = alpha
 
         if (newButtonSize != currentButtonSize) {
             currentButtonSize = newButtonSize
             layoutParams.width = currentButtonSize
             layoutParams.height = currentButtonSize
+            val iconPadding = (currentButtonSize * 0.22f).toInt()
+            button.setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
             clampPosition()
         }
 
+        applyIconTint()
         windowManager.updateViewLayout(floatingButton, layoutParams)
+    }
+
+    private fun applyIconTint() {
+        val button = floatingButton as ImageView
+        if (IconHelper.isCustomIcon(this)) {
+            button.colorFilter = null
+        } else {
+            val color = if (BrightnessHelper.isMaxBrightness) {
+                Color.YELLOW
+            } else {
+                AppPrefs.getFgColor(this)
+            }
+            button.setColorFilter(color, PorterDuff.Mode.SRC_IN)
+        }
     }
 
     private fun setupTouchListener() {
@@ -252,17 +256,6 @@ class FloatingButtonService : Service() {
 
     private fun onButtonClick() {
         BrightnessHelper.toggleBrightness(this)
-        updateButtonAppearance()
-    }
-
-    private fun updateButtonAppearance() {
-        val button = floatingButton as TextView
-        if (BrightnessHelper.isMaxBrightness) {
-            button.alpha = 1.0f
-            button.setTextColor(Color.YELLOW)
-        } else {
-            button.alpha = AppPrefs.getAlpha(this)
-            button.setTextColor(AppPrefs.getFgColor(this))
-        }
+        applyIconTint()
     }
 }

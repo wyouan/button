@@ -60,13 +60,11 @@
             android:layout_marginBottom="20dp" />
 
         <!-- 按钮预览 -->
-        <TextView
+        <ImageView
             android:id="@+id/preview_button"
             android:layout_width="56dp"
             android:layout_height="56dp"
-            android:gravity="center"
-            android:text="☀"
-            android:textSize="24sp"
+            android:scaleType="fitCenter"
             android:layout_marginBottom="24dp" />
 
         <!-- 背景颜色 -->

@@ -16,7 +16,9 @@ object AppPrefs {
     private const val KEY_BG_COLOR = "btn_bg_color"
     private const val KEY_FG_COLOR = "btn_fg_color"
     private const val KEY_ALPHA = "btn_alpha"
-    private const val KEY_ICON = "btn_icon"
+    private const val KEY_ICON_TYPE = "btn_icon_type"
+    private const val KEY_CUSTOM_SVG = "btn_custom_svg"
+    private const val KEY_CUSTOM_SVG_NAME = "btn_custom_svg_name"
     private const val KEY_SIZE = "btn_size"
 
     // 按钮位置
@@ -27,7 +29,7 @@ object AppPrefs {
     const val DEFAULT_BG_COLOR = 0x80333333.toInt()
     const val DEFAULT_FG_COLOR = 0xFFFFFFFF.toInt()
     const val DEFAULT_ALPHA = 0.6f
-    const val DEFAULT_ICON = "☀"
+    const val DEFAULT_ICON_TYPE = "sun"
     const val DEFAULT_SIZE = 56
     const val DEFAULT_POS_Y = 200
     const val DEFAULT_SNAP_SIDE = 0 // 0=左, 1=右
@@ -83,11 +85,24 @@ object AppPrefs {
         prefs(context).edit().putFloat(KEY_ALPHA, alpha).apply()
     }
 
-    fun getIcon(context: Context): String =
-        prefs(context).getString(KEY_ICON, DEFAULT_ICON) ?: DEFAULT_ICON
+    fun getIconType(context: Context): String =
+        prefs(context).getString(KEY_ICON_TYPE, DEFAULT_ICON_TYPE) ?: DEFAULT_ICON_TYPE
 
-    fun setIcon(context: Context, icon: String) {
-        prefs(context).edit().putString(KEY_ICON, icon).apply()
+    fun setIconType(context: Context, type: String) {
+        prefs(context).edit().putString(KEY_ICON_TYPE, type).apply()
+    }
+
+    fun getCustomSvg(context: Context): String? =
+        prefs(context).getString(KEY_CUSTOM_SVG, null)
+
+    fun getCustomSvgName(context: Context): String? =
+        prefs(context).getString(KEY_CUSTOM_SVG_NAME, null)
+
+    fun setCustomSvg(context: Context, svg: String, name: String) {
+        prefs(context).edit()
+            .putString(KEY_CUSTOM_SVG, svg)
+            .putString(KEY_CUSTOM_SVG_NAME, name)
+            .apply()
     }
 
     fun getSize(context: Context): Int =

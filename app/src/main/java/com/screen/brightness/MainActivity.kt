@@ -5,14 +5,17 @@ import android.app.ActivityManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.PorterDuff
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -25,7 +28,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var actionButton: Button
-    private lateinit var previewButton: TextView
+    private lateinit var previewButton: ImageView
 
     private val bgColors = intArrayOf(
         0x80333333.toInt(), 0x80000000.toInt(), 0x801565C0.toInt(),
@@ -37,8 +40,6 @@ class MainActivity : AppCompatActivity() {
         0xFF4CAF50.toInt(), 0xFF2196F3.toInt(), 0xFF000000.toInt()
     )
 
-    private val icons = arrayOf("☀", "🔆", "💡", "⚡", "🌟", "○")
-
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -47,6 +48,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             updateStatus(getString(R.string.status_notification_denied))
         }
+    }
+
+    private val svgPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri ?: return@registerForActivityResult
+        importSvg(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -152,6 +160,43 @@ class MainActivity : AppCompatActivity() {
         statusText.text = text
     }
 
+    // --- SVG 导入 ---
+
+    private fun importSvg(uri: Uri) {
+        try {
+            val inputStream = contentResolver.openInputStream(uri) ?: return
+            val svgContent = inputStream.bufferedReader().readText()
+            inputStream.close()
+
+            if (!IconHelper.isValidSvg(svgContent)) {
+                Toast.makeText(this, getString(R.string.toast_svg_error), Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val fileName = getFileName(uri) ?: "custom.svg"
+            AppPrefs.setCustomSvg(this, svgContent, fileName)
+            AppPrefs.setIconType(this, "custom")
+
+            Toast.makeText(this, getString(R.string.toast_svg_imported), Toast.LENGTH_SHORT).show()
+            setupIconRow()
+            updatePreview()
+            sendRefreshIntent()
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.toast_svg_error), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        val cursor = contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0) return it.getString(nameIndex)
+            }
+        }
+        return null
+    }
+
     // --- 设置 UI ---
 
     private fun setupSettings() {
@@ -175,22 +220,26 @@ class MainActivity : AppCompatActivity() {
         val bgColor = AppPrefs.getBgColor(this)
         val fgColor = AppPrefs.getFgColor(this)
         val alpha = AppPrefs.getAlpha(this)
-        val icon = AppPrefs.getIcon(this)
         val sizeDp = AppPrefs.getSize(this)
-
         val sizePx = (sizeDp * resources.displayMetrics.density).toInt()
+        val iconPadding = (sizePx * 0.22f).toInt()
 
-        previewButton.text = icon
-        previewButton.textSize = (sizeDp * 0.43f)
-        previewButton.setTextColor(fgColor)
-        previewButton.alpha = alpha
+        previewButton.setImageDrawable(IconHelper.loadIconDrawable(this))
         previewButton.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(bgColor)
         }
+        previewButton.alpha = alpha
+        previewButton.setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
         previewButton.layoutParams = previewButton.layoutParams.apply {
             width = sizePx
             height = sizePx
+        }
+
+        if (IconHelper.isCustomIcon(this)) {
+            previewButton.colorFilter = null
+        } else {
+            previewButton.setColorFilter(fgColor, PorterDuff.Mode.SRC_IN)
         }
     }
 
@@ -231,33 +280,63 @@ class MainActivity : AppCompatActivity() {
     private fun setupIconRow() {
         val container = findViewById<LinearLayout>(R.id.icon_row)
         container.removeAllViews()
-        val selectedIcon = AppPrefs.getIcon(this)
-        val padding = (8 * resources.displayMetrics.density).toInt()
+        val selectedType = AppPrefs.getIconType(this)
+        val iconSize = (36 * resources.displayMetrics.density).toInt()
+        val margin = (6 * resources.displayMetrics.density).toInt()
+        val padding = (6 * resources.displayMetrics.density).toInt()
 
-        for (icon in icons) {
-            val tv = TextView(this).apply {
-                text = icon
-                textSize = 28f
-                gravity = Gravity.CENTER
+        for (type in IconHelper.PRESET_TYPES) {
+            val iv = ImageView(this).apply {
+                setImageDrawable(IconHelper.getPresetDrawable(this@MainActivity, type))
+                setColorFilter(Color.DKGRAY, PorterDuff.Mode.SRC_IN)
+                scaleType = ImageView.ScaleType.FIT_CENTER
                 setPadding(padding, padding, padding, padding)
-                if (icon == selectedIcon) {
+                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                    setMargins(margin, 0, margin, 0)
+                }
+                if (type == selectedType) {
                     setBackgroundColor(Color.parseColor("#30000000"))
                 }
                 setOnClickListener {
-                    AppPrefs.setIcon(this@MainActivity, icon)
+                    AppPrefs.setIconType(this@MainActivity, type)
                     setupIconRow()
                     updatePreview()
                     sendRefreshIntent()
                 }
             }
-            container.addView(tv)
+            container.addView(iv)
         }
+
+        // 自定义 SVG 已导入时显示
+        if (selectedType == "custom") {
+            val customIv = ImageView(this).apply {
+                setImageDrawable(IconHelper.loadIconDrawable(this@MainActivity))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setPadding(padding, padding, padding, padding)
+                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                    setMargins(margin, 0, margin, 0)
+                }
+                setBackgroundColor(Color.parseColor("#30000000"))
+            }
+            container.addView(customIv)
+        }
+
+        // 导入按钮
+        val importBtn = TextView(this).apply {
+            text = getString(R.string.settings_import_svg)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(padding, padding, padding, padding)
+            setOnClickListener {
+                svgPickerLauncher.launch("*/*")
+            }
+        }
+        container.addView(importBtn)
     }
 
     private fun setupAlphaSeekBar() {
         val seekBar = findViewById<SeekBar>(R.id.alpha_seekbar)
         val currentAlpha = AppPrefs.getAlpha(this)
-        // SeekBar range: 0~80 maps to 0.2~1.0
         seekBar.progress = ((currentAlpha - 0.2f) * 100).toInt()
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -277,7 +356,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupSizeSeekBar() {
         val seekBar = findViewById<SeekBar>(R.id.size_seekbar)
         val currentSize = AppPrefs.getSize(this)
-        // SeekBar range: 0~40 maps to 40~80dp
         seekBar.progress = currentSize - 40
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {

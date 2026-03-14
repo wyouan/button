@@ -33,4 +33,7 @@
     <string name="settings_icon">按钮图标</string>
     <string name="settings_alpha">按钮透明度</string>
     <string name="settings_size">按钮大小</string>
+    <string name="settings_import_svg">导入</string>
+    <string name="toast_svg_imported">SVG图标已导入</string>
+    <string name="toast_svg_error">无法加载SVG文件</string>
 </resources>
