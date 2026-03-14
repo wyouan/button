@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">亮度快切</string>
+
+    <string name="channel_name">悬浮按钮服务</string>
+    <string name="channel_description">保持悬浮按钮运行</string>
+
+    <string name="notification_title">亮度快切运行中</string>
+    <string name="notification_text">点击悬浮按钮切换最高亮度</string>
+
+    <string name="usage_guide">使用说明：\n\n1. 授予悬浮窗和修改设置权限\n2. 屏幕上出现半透明太阳按钮\n3. 点击按钮：切换最高亮度\n4. 拖动按钮：调整位置</string>
+
+    <string name="status_checking">检查权限中…</string>
+    <string name="status_overlay_needed">需要悬浮窗权限</string>
+    <string name="status_write_settings_needed">需要修改系统设置权限</string>
+    <string name="status_notification_needed">需要通知权限</string>
+    <string name="status_notification_denied">通知权限被拒绝，服务可能无法正常运行</string>
+    <string name="status_running">悬浮按钮已启动</string>
+    <string name="status_stopped">服务已停止</string>
+
+    <string name="btn_start">启动</string>
+    <string name="btn_stop">停止服务</string>
+    <string name="btn_grant_overlay">授予悬浮窗权限</string>
+    <string name="btn_grant_settings">授予设置权限</string>
+    <string name="btn_grant_notification">授予通知权限</string>
+
+    <string name="toast_stopped">悬浮按钮已关闭</string>
+</resources>
