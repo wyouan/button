@@ -1,12 +1,12 @@
 package com.screen.brightness
 
 import android.Manifest
-import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.PorterDuff
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -101,22 +101,20 @@ class MainActivity : AppCompatActivity() {
                 updateStatus(getString(R.string.status_overlay_needed))
                 actionButton.text = getString(R.string.btn_grant_overlay)
                 actionButton.setOnClickListener {
-                    val intent = Intent(
+                    startActivity(Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:$packageName")
-                    )
-                    startActivity(intent)
+                    ))
                 }
             }
             !Settings.System.canWrite(this) -> {
                 updateStatus(getString(R.string.status_write_settings_needed))
                 actionButton.text = getString(R.string.btn_grant_settings)
                 actionButton.setOnClickListener {
-                    val intent = Intent(
+                    startActivity(Intent(
                         Settings.ACTION_MANAGE_WRITE_SETTINGS,
                         Uri.parse("package:$packageName")
-                    )
-                    startActivity(intent)
+                    ))
                 }
             }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -130,8 +128,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             else -> {
-                if (!isServiceRunning()) {
-                    startFloatingService()
+                if (FloatingButtonService.instance == null) {
+                    startForegroundService(Intent(this, FloatingButtonService::class.java))
                 }
                 updateStatus(getString(R.string.status_running))
                 actionButton.text = getString(R.string.btn_stop)
@@ -149,30 +147,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun isServiceRunning(): Boolean {
-        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        @Suppress("DEPRECATION")
-        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-            if (FloatingButtonService::class.java.name == service.service.className) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun startFloatingService() {
-        startForegroundService(Intent(this, FloatingButtonService::class.java))
-    }
-
-    private fun sendRefreshIntent() {
-        if (isServiceRunning()) {
-            val intent = Intent(this, FloatingButtonService::class.java).apply {
-                action = FloatingButtonService.ACTION_REFRESH
-            }
-            startService(intent)
-        }
-    }
-
     private fun updateStatus(text: String) {
         statusText.text = text
     }
@@ -181,9 +155,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun importSvg(uri: Uri) {
         try {
-            val inputStream = contentResolver.openInputStream(uri) ?: return
-            val svgContent = inputStream.bufferedReader().readText()
-            inputStream.close()
+            val svgContent = contentResolver.openInputStream(uri)?.use {
+                it.bufferedReader().readText()
+            } ?: return
 
             if (!IconHelper.isValidSvg(svgContent)) {
                 Toast.makeText(this, getString(R.string.toast_svg_error), Toast.LENGTH_SHORT).show()
@@ -197,18 +171,17 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.toast_svg_imported), Toast.LENGTH_SHORT).show()
             setupIconRow()
             updatePreview()
-            sendRefreshIntent()
+            FloatingButtonService.instance?.refreshButton()
         } catch (e: Exception) {
             Toast.makeText(this, getString(R.string.toast_svg_error), Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun getFileName(uri: Uri): String? {
-        val cursor = contentResolver.query(uri, null, null, null, null)
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex >= 0) return it.getString(nameIndex)
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0) return cursor.getString(nameIndex)
             }
         }
         return null
@@ -221,46 +194,164 @@ class MainActivity : AppCompatActivity() {
         setupColorRow(findViewById(R.id.bg_color_row), bgColors, AppPrefs.getBgColor(this)) { color ->
             AppPrefs.setBgColor(this, color)
             updatePreview()
-            sendRefreshIntent()
+            FloatingButtonService.instance?.refreshButton()
         }
         setupColorRow(findViewById(R.id.fg_color_row), fgColors, AppPrefs.getFgColor(this)) { color ->
             AppPrefs.setFgColor(this, color)
             updatePreview()
-            sendRefreshIntent()
+            FloatingButtonService.instance?.refreshButton()
         }
         setupIconRow()
-        setupIconAlphaSeekBar()
-        setupBgAlphaSeekBar()
-        setupSizeSeekBar()
+        setupSeekBar(R.id.icon_alpha_seekbar, AppPrefs.getIconAlpha(this)) { progress ->
+            AppPrefs.setIconAlpha(this, progress)
+            updatePreview()
+            FloatingButtonService.instance?.refreshButton()
+        }
+        setupSeekBar(R.id.bg_alpha_seekbar, AppPrefs.getBgAlpha(this)) { progress ->
+            AppPrefs.setBgAlpha(this, progress)
+            updatePreview()
+            FloatingButtonService.instance?.refreshButton()
+        }
+        setupSeekBar(R.id.size_seekbar, AppPrefs.getSize(this) - 40) { progress ->
+            AppPrefs.setSize(this, 40 + progress)
+            updatePreview()
+            FloatingButtonService.instance?.refreshButton()
+        }
     }
 
     private fun updatePreview() {
-        val bgColor = AppPrefs.getBgColor(this)
-        val fgColor = AppPrefs.getFgColor(this)
-        val iconAlpha = AppPrefs.getIconAlpha(this)
-        val bgAlpha = AppPrefs.getBgAlpha(this)
-        val sizeDp = AppPrefs.getSize(this)
+        applyPreview(
+            previewButton,
+            bgColor = AppPrefs.getBgColor(this),
+            fgColor = AppPrefs.getFgColor(this),
+            iconAlpha = AppPrefs.getIconAlpha(this),
+            bgAlpha = AppPrefs.getBgAlpha(this),
+            sizeDp = AppPrefs.getSize(this),
+            icon = IconHelper.loadIconDrawable(this),
+            isCustomIcon = IconHelper.isCustomIcon(this)
+        )
+    }
+
+    // --- 返回按钮设置 ---
+
+    private fun setupBackButtonSettings() {
+        updateBackPreview()
+        backSwitch.isChecked = AppPrefs.isBackEnabled(this)
+        backSwitch.setOnCheckedChangeListener { _, checked ->
+            AppPrefs.setBackEnabled(this, checked)
+            updateBackButtonUI()
+            BackButtonAccessibilityService.instance?.refreshButton()
+        }
+
+        btnGrantAccessibility.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
+        setupColorRow(
+            findViewById(R.id.back_bg_color_row), bgColors,
+            AppPrefs.getBackBgColor(this)
+        ) { color ->
+            AppPrefs.setBackBgColor(this, color)
+            updateBackPreview()
+            BackButtonAccessibilityService.instance?.refreshButton()
+        }
+        setupColorRow(
+            findViewById(R.id.back_fg_color_row), fgColors,
+            AppPrefs.getBackFgColor(this)
+        ) { color ->
+            AppPrefs.setBackFgColor(this, color)
+            updateBackPreview()
+            BackButtonAccessibilityService.instance?.refreshButton()
+        }
+        setupSeekBar(R.id.back_icon_alpha_seekbar, AppPrefs.getBackIconAlpha(this)) { progress ->
+            AppPrefs.setBackIconAlpha(this, progress)
+            updateBackPreview()
+            BackButtonAccessibilityService.instance?.refreshButton()
+        }
+        setupSeekBar(R.id.back_bg_alpha_seekbar, AppPrefs.getBackBgAlpha(this)) { progress ->
+            AppPrefs.setBackBgAlpha(this, progress)
+            updateBackPreview()
+            BackButtonAccessibilityService.instance?.refreshButton()
+        }
+        setupSeekBar(R.id.back_size_seekbar, AppPrefs.getBackSize(this) - 40) { progress ->
+            AppPrefs.setBackSize(this, 40 + progress)
+            updateBackPreview()
+            BackButtonAccessibilityService.instance?.refreshButton()
+        }
+    }
+
+    private fun updateBackPreview() {
+        applyPreview(
+            backPreviewButton,
+            bgColor = AppPrefs.getBackBgColor(this),
+            fgColor = AppPrefs.getBackFgColor(this),
+            iconAlpha = AppPrefs.getBackIconAlpha(this),
+            bgAlpha = AppPrefs.getBackBgAlpha(this),
+            sizeDp = AppPrefs.getBackSize(this),
+            icon = ContextCompat.getDrawable(this, R.drawable.ic_back)?.mutate(),
+            isCustomIcon = false
+        )
+    }
+
+    private fun updateBackButtonUI() {
+        val enabled = AppPrefs.isBackEnabled(this)
+        val serviceRunning = isAccessibilityServiceEnabled()
+
+        backSettingsContainer.visibility = if (enabled) View.VISIBLE else View.GONE
+        backPreviewButton.visibility = if (enabled) View.VISIBLE else View.GONE
+
+        if (enabled && !serviceRunning) {
+            backAccessibilityStatus.text = getString(R.string.back_accessibility_needed)
+            backAccessibilityStatus.visibility = View.VISIBLE
+            btnGrantAccessibility.visibility = View.VISIBLE
+        } else {
+            backAccessibilityStatus.visibility = View.GONE
+            btnGrantAccessibility.visibility = View.GONE
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expectedComponent = ComponentName(this, BackButtonAccessibilityService::class.java)
+        val enabledServices = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabledServices.split(':').any {
+            ComponentName.unflattenFromString(it) == expectedComponent
+        }
+    }
+
+    // --- 公共 UI 工具 ---
+
+    private fun applyPreview(
+        imageView: ImageView,
+        bgColor: Int, fgColor: Int,
+        iconAlpha: Int, bgAlpha: Int,
+        sizeDp: Int,
+        icon: Drawable?,
+        isCustomIcon: Boolean
+    ) {
         val sizePx = (sizeDp * resources.displayMetrics.density).toInt()
         val iconPadding = (sizePx * 0.22f).toInt()
-
-        previewButton.setImageDrawable(IconHelper.loadIconDrawable(this))
         val colorWithAlpha = (bgAlpha shl 24) or (bgColor and 0x00FFFFFF)
-        previewButton.background = GradientDrawable().apply {
+
+        imageView.setImageDrawable(icon)
+        imageView.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(colorWithAlpha)
         }
-        previewButton.imageAlpha = iconAlpha
-        previewButton.alpha = 1.0f
-        previewButton.setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
-        previewButton.layoutParams = previewButton.layoutParams.apply {
+        imageView.imageAlpha = iconAlpha
+        imageView.alpha = 1.0f
+        imageView.setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+        imageView.layoutParams = imageView.layoutParams.apply {
             width = sizePx
             height = sizePx
         }
 
-        if (IconHelper.isCustomIcon(this)) {
-            previewButton.colorFilter = null
+        if (isCustomIcon) {
+            imageView.colorFilter = null
         } else {
-            previewButton.setColorFilter(fgColor, PorterDuff.Mode.SRC_IN)
+            imageView.setColorFilter(fgColor, PorterDuff.Mode.SRC_IN)
         }
     }
 
@@ -322,7 +413,7 @@ class MainActivity : AppCompatActivity() {
                     AppPrefs.setIconType(this@MainActivity, type)
                     setupIconRow()
                     updatePreview()
-                    sendRefreshIntent()
+                    FloatingButtonService.instance?.refreshButton()
                 }
             }
             container.addView(iv)
@@ -353,162 +444,15 @@ class MainActivity : AppCompatActivity() {
         container.addView(importBtn)
     }
 
-    private fun setupIconAlphaSeekBar() {
-        val seekBar = findViewById<SeekBar>(R.id.icon_alpha_seekbar)
-        seekBar.progress = AppPrefs.getIconAlpha(this)
-        seekBar.setOnSeekBarChangeListener(simpleSeekBarListener { progress ->
-            AppPrefs.setIconAlpha(this, progress)
-            updatePreview()
-            sendRefreshIntent()
-        })
-    }
-
-    private fun setupBgAlphaSeekBar() {
-        val seekBar = findViewById<SeekBar>(R.id.bg_alpha_seekbar)
-        seekBar.progress = AppPrefs.getBgAlpha(this)
-        seekBar.setOnSeekBarChangeListener(simpleSeekBarListener { progress ->
-            AppPrefs.setBgAlpha(this, progress)
-            updatePreview()
-            sendRefreshIntent()
-        })
-    }
-
-    private fun setupSizeSeekBar() {
-        val seekBar = findViewById<SeekBar>(R.id.size_seekbar)
-        seekBar.progress = AppPrefs.getSize(this) - 40
-        seekBar.setOnSeekBarChangeListener(simpleSeekBarListener { progress ->
-            AppPrefs.setSize(this, 40 + progress)
-            updatePreview()
-            sendRefreshIntent()
-        })
-    }
-
-    // --- 返回按钮设置 ---
-
-    private fun setupBackButtonSettings() {
-        updateBackPreview()
-        backSwitch.isChecked = AppPrefs.isBackEnabled(this)
-        backSwitch.setOnCheckedChangeListener { _, checked ->
-            AppPrefs.setBackEnabled(this, checked)
-            updateBackButtonUI()
-            sendBackRefreshIntent()
-        }
-
-        btnGrantAccessibility.setOnClickListener {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            startActivity(intent)
-        }
-
-        setupColorRow(
-            findViewById(R.id.back_bg_color_row), bgColors,
-            AppPrefs.getBackBgColor(this)
-        ) { color ->
-            AppPrefs.setBackBgColor(this, color)
-            updateBackPreview()
-            sendBackRefreshIntent()
-        }
-        setupColorRow(
-            findViewById(R.id.back_fg_color_row), fgColors,
-            AppPrefs.getBackFgColor(this)
-        ) { color ->
-            AppPrefs.setBackFgColor(this, color)
-            updateBackPreview()
-            sendBackRefreshIntent()
-        }
-
-        val backIconAlphaSeekBar = findViewById<SeekBar>(R.id.back_icon_alpha_seekbar)
-        backIconAlphaSeekBar.progress = AppPrefs.getBackIconAlpha(this)
-        backIconAlphaSeekBar.setOnSeekBarChangeListener(simpleSeekBarListener { progress ->
-            AppPrefs.setBackIconAlpha(this, progress)
-            updateBackPreview()
-            sendBackRefreshIntent()
-        })
-
-        val backBgAlphaSeekBar = findViewById<SeekBar>(R.id.back_bg_alpha_seekbar)
-        backBgAlphaSeekBar.progress = AppPrefs.getBackBgAlpha(this)
-        backBgAlphaSeekBar.setOnSeekBarChangeListener(simpleSeekBarListener { progress ->
-            AppPrefs.setBackBgAlpha(this, progress)
-            updateBackPreview()
-            sendBackRefreshIntent()
-        })
-
-        val backSizeSeekBar = findViewById<SeekBar>(R.id.back_size_seekbar)
-        backSizeSeekBar.progress = AppPrefs.getBackSize(this) - 40
-        backSizeSeekBar.setOnSeekBarChangeListener(simpleSeekBarListener { progress ->
-            AppPrefs.setBackSize(this, 40 + progress)
-            updateBackPreview()
-            sendBackRefreshIntent()
-        })
-    }
-
-    private fun updateBackPreview() {
-        val bgColor = AppPrefs.getBackBgColor(this)
-        val fgColor = AppPrefs.getBackFgColor(this)
-        val iconAlpha = AppPrefs.getBackIconAlpha(this)
-        val bgAlpha = AppPrefs.getBackBgAlpha(this)
-        val sizeDp = AppPrefs.getBackSize(this)
-        val sizePx = (sizeDp * resources.displayMetrics.density).toInt()
-        val iconPadding = (sizePx * 0.22f).toInt()
-
-        backPreviewButton.setImageDrawable(
-            ContextCompat.getDrawable(this, R.drawable.ic_back)?.mutate()
-        )
-        val colorWithAlpha = (bgAlpha shl 24) or (bgColor and 0x00FFFFFF)
-        backPreviewButton.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(colorWithAlpha)
-        }
-        backPreviewButton.imageAlpha = iconAlpha
-        backPreviewButton.alpha = 1.0f
-        backPreviewButton.setColorFilter(fgColor, PorterDuff.Mode.SRC_IN)
-        backPreviewButton.setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
-        backPreviewButton.layoutParams = backPreviewButton.layoutParams.apply {
-            width = sizePx
-            height = sizePx
-        }
-    }
-
-    private fun updateBackButtonUI() {
-        val enabled = AppPrefs.isBackEnabled(this)
-        val serviceRunning = isAccessibilityServiceEnabled()
-
-        backSettingsContainer.visibility = if (enabled) View.VISIBLE else View.GONE
-        backPreviewButton.visibility = if (enabled) View.VISIBLE else View.GONE
-
-        if (enabled && !serviceRunning) {
-            backAccessibilityStatus.text = getString(R.string.back_accessibility_needed)
-            backAccessibilityStatus.visibility = View.VISIBLE
-            btnGrantAccessibility.visibility = View.VISIBLE
-        } else {
-            backAccessibilityStatus.visibility = View.GONE
-            btnGrantAccessibility.visibility = View.GONE
-        }
-    }
-
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val expectedComponent = ComponentName(this, BackButtonAccessibilityService::class.java)
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabledServices.split(':').any {
-            ComponentName.unflattenFromString(it) == expectedComponent
-        }
-    }
-
-    private fun sendBackRefreshIntent() {
-        BackButtonAccessibilityService.instance?.refreshButton()
-    }
-
-    // --- 工具方法 ---
-
-    private fun simpleSeekBarListener(onProgress: (Int) -> Unit): SeekBar.OnSeekBarChangeListener {
-        return object : SeekBar.OnSeekBarChangeListener {
+    private fun setupSeekBar(viewId: Int, initialProgress: Int, onChange: (Int) -> Unit) {
+        val seekBar = findViewById<SeekBar>(viewId)
+        seekBar.progress = initialProgress
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) onProgress(progress)
+                if (fromUser) onChange(progress)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        }
+        })
     }
 }

@@ -1,6 +1,5 @@
 package com.screen.brightness
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
@@ -8,13 +7,10 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import android.widget.ImageView
 
 data class ButtonConfig(
@@ -23,8 +19,8 @@ data class ButtonConfig(
     val fgColor: Int,
     val iconAlpha: Int,
     val bgAlpha: Int,
+    val posX: Int,
     val posY: Int,
-    val snapSide: Int,
     val iconDrawable: Drawable?,
     val isCustomIcon: Boolean,
     val windowType: Int
@@ -36,7 +32,7 @@ class FloatingButtonHelper(
     private var config: ButtonConfig,
     private val onClick: () -> Unit,
     private val onLongClick: (() -> Unit)? = null,
-    private val onPositionSaved: (posY: Int, snapSide: Int) -> Unit
+    private val onPositionSaved: (posX: Int, posY: Int) -> Unit
 ) {
 
     companion object {
@@ -54,7 +50,9 @@ class FloatingButtonHelper(
     fun isCreated(): Boolean = floatingButton != null
 
     fun create() {
-        updateScreenSize()
+        val dm = context.resources.displayMetrics
+        screenWidth = dm.widthPixels
+        screenHeight = dm.heightPixels
         currentButtonSize = dpToPx(config.sizeDp)
         val iconPadding = (currentButtonSize * 0.22f).toInt()
 
@@ -68,8 +66,6 @@ class FloatingButtonHelper(
         }
         applyIconTint(button)
 
-        val startX = if (config.snapSide == 1) screenWidth - currentButtonSize else 0
-
         layoutParams = WindowManager.LayoutParams(
             currentButtonSize,
             currentButtonSize,
@@ -78,8 +74,8 @@ class FloatingButtonHelper(
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = startX
-            y = config.posY
+            x = config.posX.coerceIn(0, screenWidth - currentButtonSize)
+            y = config.posY.coerceIn(0, screenHeight - currentButtonSize)
         }
 
         setupTouchListener(button)
@@ -192,7 +188,7 @@ class FloatingButtonHelper(
                     if (!isDragging && !longPressTriggered) {
                         onClick()
                     } else if (isDragging) {
-                        snapToEdge(button)
+                        onPositionSaved(layoutParams.x, layoutParams.y)
                     }
                     true
                 }
@@ -208,33 +204,6 @@ class FloatingButtonHelper(
     private fun clampPosition() {
         layoutParams.x = layoutParams.x.coerceIn(0, screenWidth - currentButtonSize)
         layoutParams.y = layoutParams.y.coerceIn(0, screenHeight - currentButtonSize)
-    }
-
-    private fun snapToEdge(button: ImageView) {
-        val centerX = layoutParams.x + currentButtonSize / 2
-        val targetX = if (centerX < screenWidth / 2) 0 else screenWidth - currentButtonSize
-        val snapSide = if (targetX == 0) 0 else 1
-
-        ValueAnimator.ofInt(layoutParams.x, targetX).apply {
-            duration = 250
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { animation ->
-                layoutParams.x = animation.animatedValue as Int
-                if (floatingButton != null) {
-                    windowManager.updateViewLayout(button, layoutParams)
-                }
-            }
-        }.start()
-
-        onPositionSaved(layoutParams.y, snapSide)
-    }
-
-    private fun updateScreenSize() {
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getMetrics(metrics)
-        screenWidth = metrics.widthPixels
-        screenHeight = metrics.heightPixels
     }
 
     private fun dpToPx(dp: Int): Int =

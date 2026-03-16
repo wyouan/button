@@ -16,7 +16,8 @@ class FloatingButtonService : Service() {
     companion object {
         private const val CHANNEL_ID = "floating_button_channel"
         private const val NOTIFICATION_ID = 1
-        const val ACTION_REFRESH = "com.screen.brightness.ACTION_REFRESH"
+        var instance: FloatingButtonService? = null
+            private set
     }
 
     private var helper: FloatingButtonHelper? = null
@@ -25,25 +26,24 @@ class FloatingButtonService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         BrightnessHelper.init(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
         createFloatingButton()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_REFRESH) {
-            refreshButtonAppearance()
-        }
-        return START_NOT_STICKY
-    }
-
     override fun onDestroy() {
-        super.onDestroy()
         helper?.destroy()
+        instance = null
         if (BrightnessHelper.isMaxBrightness) {
             BrightnessHelper.restoreBrightness(this)
         }
+        super.onDestroy()
+    }
+
+    fun refreshButton() {
+        helper?.refresh(buildConfig())
     }
 
     private fun createNotificationChannel() {
@@ -86,8 +86,8 @@ class FloatingButtonService : Service() {
             fgColor = fgColor,
             iconAlpha = AppPrefs.getIconAlpha(this),
             bgAlpha = AppPrefs.getBgAlpha(this),
+            posX = AppPrefs.getPosX(this),
             posY = AppPrefs.getPosY(this),
-            snapSide = AppPrefs.getSnapSide(this),
             iconDrawable = IconHelper.loadIconDrawable(this),
             isCustomIcon = IconHelper.isCustomIcon(this),
             windowType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -101,16 +101,12 @@ class FloatingButtonService : Service() {
             windowManager = wm,
             config = buildConfig(),
             onClick = ::onButtonClick,
-            onPositionSaved = { posY, snapSide ->
+            onPositionSaved = { posX, posY ->
+                AppPrefs.setPosX(this, posX)
                 AppPrefs.setPosY(this, posY)
-                AppPrefs.setSnapSide(this, snapSide)
             }
         )
         helper?.create()
-    }
-
-    private fun refreshButtonAppearance() {
-        helper?.refresh(buildConfig())
     }
 
     private fun onButtonClick() {

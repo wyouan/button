@@ -25,8 +25,8 @@ object AppPrefs {
     private const val KEY_SIZE = "btn_size"
 
     // 亮度按钮 - 位置
+    private const val KEY_POS_X = "btn_pos_x"
     private const val KEY_POS_Y = "btn_pos_y"
-    private const val KEY_SNAP_SIDE = "btn_snap_side"
 
     // 旧版透明度（用于迁移）
     private const val KEY_ALPHA_LEGACY = "btn_alpha"
@@ -38,18 +38,18 @@ object AppPrefs {
     private const val KEY_BACK_ICON_ALPHA = "back_btn_icon_alpha"
     private const val KEY_BACK_BG_ALPHA = "back_btn_bg_alpha"
     private const val KEY_BACK_SIZE = "back_btn_size"
+    private const val KEY_BACK_POS_X = "back_btn_pos_x"
     private const val KEY_BACK_POS_Y = "back_btn_pos_y"
-    private const val KEY_BACK_SNAP_SIDE = "back_btn_snap_side"
 
-    // 亮度按钮默认值 - bgColor 不含透明度，透明度由 SeekBar 独立控制
+    // 亮度按钮默认值
     const val DEFAULT_BG_COLOR = 0xFF333333.toInt()
     const val DEFAULT_FG_COLOR = 0xFFFFFFFF.toInt()
     const val DEFAULT_ICON_ALPHA = 180
     const val DEFAULT_BG_ALPHA = 128
     const val DEFAULT_ICON_TYPE = "sun"
     const val DEFAULT_SIZE = 56
+    const val DEFAULT_POS_X = 0
     const val DEFAULT_POS_Y = 200
-    const val DEFAULT_SNAP_SIDE = 0 // 0=左, 1=右
 
     // 返回按钮默认值
     const val DEFAULT_BACK_ENABLED = false
@@ -58,8 +58,8 @@ object AppPrefs {
     const val DEFAULT_BACK_ICON_ALPHA = 180
     const val DEFAULT_BACK_BG_ALPHA = 128
     const val DEFAULT_BACK_SIZE = 48
+    const val DEFAULT_BACK_POS_X = 0
     const val DEFAULT_BACK_POS_Y = 400
-    const val DEFAULT_BACK_SNAP_SIDE = 0
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -97,6 +97,10 @@ object AppPrefs {
                 }
             }
         }
+
+        // 旧 snap_side → 清理（不再使用）
+        editor.remove("btn_snap_side")
+        editor.remove("back_btn_snap_side")
 
         editor.apply()
     }
@@ -185,18 +189,18 @@ object AppPrefs {
 
     // --- 亮度按钮位置 ---
 
+    fun getPosX(context: Context): Int =
+        prefs(context).getInt(KEY_POS_X, DEFAULT_POS_X)
+
+    fun setPosX(context: Context, x: Int) {
+        prefs(context).edit().putInt(KEY_POS_X, x).apply()
+    }
+
     fun getPosY(context: Context): Int =
         prefs(context).getInt(KEY_POS_Y, DEFAULT_POS_Y)
 
     fun setPosY(context: Context, y: Int) {
         prefs(context).edit().putInt(KEY_POS_Y, y).apply()
-    }
-
-    fun getSnapSide(context: Context): Int =
-        prefs(context).getInt(KEY_SNAP_SIDE, DEFAULT_SNAP_SIDE)
-
-    fun setSnapSide(context: Context, side: Int) {
-        prefs(context).edit().putInt(KEY_SNAP_SIDE, side).apply()
     }
 
     // --- 返回按钮 ---
@@ -243,17 +247,17 @@ object AppPrefs {
         prefs(context).edit().putInt(KEY_BACK_SIZE, size).apply()
     }
 
+    fun getBackPosX(context: Context): Int =
+        prefs(context).getInt(KEY_BACK_POS_X, DEFAULT_BACK_POS_X)
+
+    fun setBackPosX(context: Context, x: Int) {
+        prefs(context).edit().putInt(KEY_BACK_POS_X, x).apply()
+    }
+
     fun getBackPosY(context: Context): Int =
         prefs(context).getInt(KEY_BACK_POS_Y, DEFAULT_BACK_POS_Y)
 
     fun setBackPosY(context: Context, y: Int) {
         prefs(context).edit().putInt(KEY_BACK_POS_Y, y).apply()
-    }
-
-    fun getBackSnapSide(context: Context): Int =
-        prefs(context).getInt(KEY_BACK_SNAP_SIDE, DEFAULT_BACK_SNAP_SIDE)
-
-    fun setBackSnapSide(context: Context, side: Int) {
-        prefs(context).edit().putInt(KEY_BACK_SNAP_SIDE, side).apply()
     }
 }
