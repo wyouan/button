@@ -176,10 +176,13 @@ class FloatingButtonHelper(
                         isDragging = true
                         longPressRunnable?.let { handler.removeCallbacks(it) }
                     }
+                    val dm = context.resources.displayMetrics
+                    val currentScreenWidth = dm.widthPixels
+                    val currentScreenHeight = dm.heightPixels
                     layoutParams.x = (initialX + dx.toInt())
-                        .coerceIn(0, screenWidth - currentButtonSize)
+                        .coerceIn(0, currentScreenWidth - currentButtonSize)
                     layoutParams.y = (initialY + dy.toInt())
-                        .coerceIn(0, screenHeight - currentButtonSize)
+                        .coerceIn(0, currentScreenHeight - currentButtonSize)
                     windowManager.updateViewLayout(button, layoutParams)
                     true
                 }
@@ -202,8 +205,11 @@ class FloatingButtonHelper(
     }
 
     private fun clampPosition() {
-        layoutParams.x = layoutParams.x.coerceIn(0, screenWidth - currentButtonSize)
-        layoutParams.y = layoutParams.y.coerceIn(0, screenHeight - currentButtonSize)
+        val dm = context.resources.displayMetrics
+        val currentScreenWidth = dm.widthPixels
+        val currentScreenHeight = dm.heightPixels
+        layoutParams.x = layoutParams.x.coerceIn(0, currentScreenWidth - currentButtonSize)
+        layoutParams.y = layoutParams.y.coerceIn(0, currentScreenHeight - currentButtonSize)
     }
 
     private fun dpToPx(dp: Int): Int =
